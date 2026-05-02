@@ -12,6 +12,15 @@
           </select>
         </div>
         
+        <div class="theme-selector">
+          <label for="theme">主题选择：</label>
+          <select id="theme" v-model="selectedTheme" @change="restartGame">
+            <option v-for="(theme, key) in themes" :key="key" :value="key">
+              {{ theme.name }}
+            </option>
+          </select>
+        </div>
+        
         <button class="restart-btn" @click="restartGame">
           重新开始
         </button>
@@ -29,6 +38,20 @@
         <div class="stat-item">
           <span class="stat-label">配对进度：</span>
           <span class="stat-value">{{ matchedPairs }} / {{ totalPairs }}</span>
+        </div>
+      </div>
+      
+      <div class="best-records" v-if="currentBestRecord">
+        <h3 class="records-title">🏆 当前难度最佳记录</h3>
+        <div class="records-content">
+          <div class="record-item">
+            <span class="record-label">最快时间：</span>
+            <span class="record-value">{{ currentBestRecord.bestTime ? formatTime(currentBestRecord.bestTime) : '暂无记录' }}</span>
+          </div>
+          <div class="record-item">
+            <span class="record-label">最少翻牌：</span>
+            <span class="record-value">{{ currentBestRecord.bestFlips || '暂无记录' }}</span>
+          </div>
         </div>
       </div>
     </div>
@@ -60,6 +83,16 @@
     <div v-if="gameWon" class="game-overlay">
       <div class="game-message">
         <h2>🎉 恭喜你赢了！</h2>
+        
+        <div v-if="newRecordType" class="new-record-banner">
+          <span class="new-record-text">
+            🏆 新纪录！
+            <span v-if="newRecordType === 'time'">时间：{{ formatTime(elapsedTime) }}</span>
+            <span v-else-if="newRecordType === 'flips'">翻牌次数：{{ flipCount }}</span>
+            <span v-else>时间：{{ formatTime(elapsedTime) }} | 翻牌次数：{{ flipCount }}</span>
+          </span>
+        </div>
+        
         <div class="game-results">
           <p>完成时间：{{ formatTime(elapsedTime) }}</p>
           <p>翻牌次数：{{ flipCount }}</p>
@@ -72,18 +105,35 @@
   </div>
 </template>
 
-<script setup>import { ref, computed, onMounted, onUnmounted } from 'vue';
+<script setup>import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 
-const cardEmojis = [
-  '🎈', '🎨', '🎭', '🎪', '🎯', '🎲',
-  '🎸', '🎹', '🎺', '🎻', '🎼', '🎵',
-  '🎾', '🎿', '🏀', '🏈', '⚽', '⚾',
-  '🍎', '🍊', '🍋', '🍌', '🍉', '🍇',
-  '🐶', '🐱', '🐭', '🐹', '🐰', '🦊',
-  '🌟', '🌙', '⭐', '☀️', '🌈', '☁️'
-];
+const themes = {
+  animals: {
+    name: '🐾 动物',
+    emojis: ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', '🐸', '🐵', '🐔', '🐧', '🦆']
+  },
+  food: {
+    name: '🍎 食物',
+    emojis: ['🍎', '🍊', '🍋', '🍌', '🍉', '🍇', '🍓', '🍒', '🍑', '🥝', '🍍', '🍅', '🥕', '🌽', '🍕', '🍔', '🍟', '🍦']
+  },
+  sports: {
+    name: '⚽ 运动',
+    emojis: ['⚽', '�', '�', '⚾', '�', '�', '�', '�', '🏓', '🏸', '🏒', '🥊', '⛳', '🎣', '🏹', '🎿', '⛷️', '🏂']
+  },
+  music: {
+    name: '� 音乐',
+    emojis: ['🎵', '🎶', '�', '🎹', '🎺', '🎻', '🥁', '�', '�', '🎭', '�', '�', '�', '�', '🎯', '🎳', '🎮', '🎰']
+  },
+  nature: {
+    name: '� 自然',
+    emojis: ['�', '�', '�', '�', '�', '🌼', '🌲', '🌳', '🌴', '🌵', '🍀', '🌿', '�', '�', '🍂', '🌙', '⭐', '☀️']
+  }
+};
+
+const STORAGE_KEY = 'memory-flip-records';
 
 const selectedDifficulty = ref('4');
+const selectedTheme = ref('animals');
 const cards = ref([]);
 const flippedCards = ref([]);
 const matchedPairs = ref(0);
@@ -91,6 +141,8 @@ const flipCount = ref(0);
 const elapsedTime = ref(0);
 const gameWon = ref(false);
 const isProcessing = ref(false);
+const newRecordType = ref(null);
+const bestRecords = ref({});
 
 let timerInterval = null;
 
@@ -102,9 +154,75 @@ const totalPairs = computed(() => {
   return (boardSize.value * boardSize.value) / 2;
 });
 
+const currentBestRecord = computed(() => {
+  return bestRecords.value[selectedDifficulty.value] || { bestTime: null, bestFlips: null };
+});
+
+const loadRecords = () => {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      bestRecords.value = JSON.parse(saved);
+    }
+  } catch (error) {
+    console.error('Failed to load records:', error);
+    bestRecords.value = {};
+  }
+};
+
+const saveRecords = () => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(bestRecords.value));
+  } catch (error) {
+    console.error('Failed to save records:', error);
+  }
+};
+
+const checkAndUpdateRecord = () => {
+  const difficulty = selectedDifficulty.value;
+  const currentTime = elapsedTime.value;
+  const currentFlips = flipCount.value;
+  
+  let isNewRecord = false;
+  let recordType = null;
+  
+  if (!bestRecords.value[difficulty]) {
+    bestRecords.value[difficulty] = {
+      bestTime: currentTime,
+      bestFlips: currentFlips
+    };
+    isNewRecord = true;
+    recordType = 'both';
+  } else {
+    const record = bestRecords.value[difficulty];
+    const timeBetter = record.bestTime === null || currentTime < record.bestTime;
+    const flipsBetter = record.bestFlips === null || currentFlips < record.bestFlips;
+    
+    if (timeBetter) {
+      record.bestTime = currentTime;
+      isNewRecord = true;
+      recordType = 'time';
+    }
+    
+    if (flipsBetter) {
+      record.bestFlips = currentFlips;
+      isNewRecord = true;
+      recordType = recordType ? 'both' : 'flips';
+    }
+  }
+  
+  if (isNewRecord) {
+    newRecordType.value = recordType;
+    saveRecords();
+  }
+  
+  return isNewRecord;
+};
+
 const createCards = () => {
   const pairsNeeded = totalPairs.value;
-  const selectedEmojis = [...cardEmojis].slice(0, pairsNeeded);
+  const themeEmojis = themes[selectedTheme.value].emojis;
+  const selectedEmojis = [...themeEmojis].slice(0, pairsNeeded);
   const cardPairs = [...selectedEmojis, ...selectedEmojis];
   
   return cardPairs
@@ -173,6 +291,7 @@ const checkMatch = () => {
     
     if (matchedPairs.value === totalPairs.value) {
       stopTimer();
+      checkAndUpdateRecord();
       gameWon.value = true;
     }
   } else {
@@ -187,6 +306,7 @@ const checkMatch = () => {
 
 const restartGame = () => {
   stopTimer();
+  newRecordType.value = null;
   cards.value = createCards();
   flippedCards.value = [];
   matchedPairs.value = 0;
@@ -197,6 +317,7 @@ const restartGame = () => {
 };
 
 onMounted(() => {
+  loadRecords();
   restartGame();
 });
 
@@ -261,6 +382,33 @@ onUnmounted(() => {
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
 }
 
+.theme-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.theme-selector label {
+  font-weight: 600;
+  color: #333;
+}
+
+.theme-selector select {
+  padding: 8px 16px;
+  border: 2px solid #667eea;
+  border-radius: 8px;
+  background: white;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.theme-selector select:focus {
+  outline: none;
+  border-color: #764ba2;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+}
+
 .restart-btn {
   padding: 10px 24px;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -306,6 +454,46 @@ onUnmounted(() => {
   font-size: 1.5rem;
   font-weight: 700;
   color: #667eea;
+}
+
+.best-records {
+  margin-top: 20px;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+  border-radius: 12px;
+  border: 2px dashed rgba(102, 126, 234, 0.4);
+}
+
+.records-title {
+  margin: 0 0 12px 0;
+  font-size: 1.1rem;
+  color: #667eea;
+  font-weight: 600;
+}
+
+.records-content {
+  display: flex;
+  justify-content: center;
+  gap: 40px;
+  flex-wrap: wrap;
+}
+
+.record-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.record-label {
+  font-size: 0.875rem;
+  color: #666;
+  font-weight: 500;
+}
+
+.record-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #764ba2;
 }
 
 .game-board {
@@ -442,6 +630,30 @@ onUnmounted(() => {
   margin-bottom: 20px;
 }
 
+.new-record-banner {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  color: white;
+  padding: 16px 24px;
+  border-radius: 12px;
+  margin-bottom: 20px;
+  animation: pulseRecord 1s ease infinite;
+  box-shadow: 0 4px 15px rgba(245, 87, 108, 0.4);
+}
+
+.new-record-text {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+@keyframes pulseRecord {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.02);
+  }
+}
+
 .game-results {
   margin-bottom: 24px;
 }
@@ -475,12 +687,39 @@ onUnmounted(() => {
     font-size: 1.8rem;
   }
   
+  .game-controls {
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .difficulty-selector,
+  .theme-selector {
+    flex-direction: column;
+    gap: 6px;
+  }
+  
   .game-stats {
     gap: 15px;
   }
   
   .stat-value {
     font-size: 1.2rem;
+  }
+  
+  .best-records {
+    padding: 12px 16px;
+  }
+  
+  .records-title {
+    font-size: 1rem;
+  }
+  
+  .records-content {
+    gap: 20px;
+  }
+  
+  .record-value {
+    font-size: 1.1rem;
   }
   
   .board-4 {
@@ -497,6 +736,19 @@ onUnmounted(() => {
   
   .card-back::before {
     font-size: 1.8rem;
+  }
+  
+  .game-message {
+    padding: 30px 20px;
+    margin: 20px;
+  }
+  
+  .game-message h2 {
+    font-size: 1.5rem;
+  }
+  
+  .new-record-text {
+    font-size: 1rem;
   }
 }
 </style>
