@@ -414,16 +414,36 @@ const handleDrop = (event) => {
 };
 
 const processFiles = (files) => {
+  const existingUrls = new Set(customImages.value.map(img => img.url));
+  const existingNames = new Set(customImages.value.map(img => img.name));
+  const newlyAddedUrls = new Set();
+  const newlyAddedNames = new Set();
+  
   files.forEach(file => {
+    if (existingNames.has(file.name) || newlyAddedNames.has(file.name)) {
+      console.log(`跳过已存在的图片: ${file.name}`);
+      return;
+    }
+    
     const reader = new FileReader();
     reader.onload = (e) => {
       const imageUrl = e.target.result;
+      
+      if (existingUrls.has(imageUrl) || newlyAddedUrls.has(imageUrl)) {
+        console.log(`跳过内容相同的图片: ${file.name}`);
+        return;
+      }
+      
       customImages.value.push({
         id: Date.now() + Math.random(),
         url: imageUrl,
         name: file.name
       });
+      
+      newlyAddedUrls.add(imageUrl);
+      newlyAddedNames.add(file.name);
       saveCustomImages();
+      
       if (selectedTheme.value === 'custom' && customImages.value.length >= totalPairs.value) {
         restartGame();
       }
